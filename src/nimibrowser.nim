@@ -7,12 +7,7 @@ type NimiBrowser* = ref object
   cookies: StringTableRef
   proxyUrl*: string
   allowCompression*: bool
-
-var userAgents: StringTableRef = {
-  "firefox": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:73.0) Gecko/20100101 Firefox/73.0"
-}.newStringTable()
-
-echo userAgents["firefox"]
+  userAgent*: string
 
 proc setCookies(br: NimiBrowser, resp: AsyncResponse) =
   if not resp.headers.hasKey("set-cookie"): return
@@ -98,7 +93,8 @@ proc newNimiBrowser*(cookiejar = "cookiejar"): NimiBrowser =
   else:
     cookies = newStringTable()
   result = NimiBrowser(
-    cookies: cookies
+    cookies: cookies,
+    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:73.0) Gecko/20100101 Firefox/73.0"
   )
 
 when isMainModule and false:
