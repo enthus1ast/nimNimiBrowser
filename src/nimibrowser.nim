@@ -2,13 +2,17 @@ import httpClient, asyncdispatch, httpclient, strtabs, uri, strformat, strutils,
 import marshal
 import zippy
 
-
 type NimiBrowser* = ref object
   currentUri: string
   cookies: StringTableRef
-  defaultHeaders: HttpHeaders
   proxyUrl*: string
   allowCompression*: bool
+
+var userAgents: StringTableRef = {
+  "firefox": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:73.0) Gecko/20100101 Firefox/73.0"
+}.newStringTable()
+
+echo userAgents["firefox"]
 
 proc setCookies(br: NimiBrowser, resp: AsyncResponse) =
   if not resp.headers.hasKey("set-cookie"): return
@@ -55,8 +59,7 @@ proc uncompressedBody*(resp: AsyncResponse): Future[string] {.async.} =
 
 
 proc request*(br: NimiBrowser, url: string, httpMethod: HttpMethod, body = "", headers = newHttpHeaders()): Future[AsyncResponse] {.async.} =
-  var vheaders = headers # TODO FIRST set our defaults, then let the user overwrite with their headers, to allow fully custom requests
-  # br.cookies["__cfduid"] = "d5c917d143c948487c3f578ee899c566d1585589665"
+  var vheaders = newHttpHeaders()
   vheaders["cookie"] = br.makeCookies()
   vheaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:73.0) Gecko/20100101 Firefox/73.0"
   vheaders["Accept-Language"] = "de,en-US;q=0.7,en;q=0.3"
@@ -66,8 +69,11 @@ proc request*(br: NimiBrowser, url: string, httpMethod: HttpMethod, body = "", h
     vheaders["Origin"] = br.currentUri
   if br.allowCompression:
     vheaders["Accept-Encoding"] = "deflate, gzip"
-
   vheaders = br.setCrsfTokens(vheaders)
+
+  # If the user provided some headers we respect them.
+  for (key, val) in headers.pairs():
+    vheaders[key] = val
 
   var client: AsyncHttpClient
   if br.proxyUrl != "":
@@ -78,28 +84,24 @@ proc request*(br: NimiBrowser, url: string, httpMethod: HttpMethod, body = "", h
   br.currentUri = url
   br.setCookies(result)
 
+
 proc get*(br: NimiBrowser, url: string, body = "", headers = newHttpHeaders()): Future[AsyncResponse] {.async.} =
   return await br.request(url, HttpGet, body, headers)
 
 proc post*(br: NimiBrowser, url: string, body = "", headers = newHttpHeaders()): Future[AsyncResponse] {.async.} =
   return await br.request(url, HttpPost, body, headers)
 
-proc newNimiBrowser*(): NimiBrowser =
+proc newNimiBrowser*(cookiejar = "cookiejar"): NimiBrowser =
   var cookies: StringTableRef
-  if fileExists("cookiejar"):
-    cookies = to[StringTableRef](readFile("cookiejar"))
+  if fileExists(cookiejar):
+    cookies = to[StringTableRef](readFile(cookiejar))
   else:
     cookies = newStringTable()
   result = NimiBrowser(
     cookies: cookies
-    # defaultHeaders: defaultHeaders
   )
 
-proc iAmFirefox(br: var NimiBrowser) =
-  ## sets default header like firefox
-
-
-when isMainModule:
+when isMainModule and false:
   var br = newNimiBrowser()
   br.allowCompression = true
   var resp = waitFor br.get("https://blog.fefe.de")
@@ -107,9 +109,7 @@ when isMainModule:
   echo waitFor (resp.uncompressedBody())
 
 when isMainModule and false:
-  var br = newNimiBrowser(
-    # defaultHeaders: newHttpHeaders
-  )
+  var br = newNimiBrowser()
   br.iAmFirefox()
   br.proxyUrl = "http://127.0.0.1:8080"
   var resp = waitFor br.get("https://beta.pathofdiablo.com/trade-search")
