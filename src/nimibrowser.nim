@@ -9,6 +9,8 @@ type NimiBrowser* = ref object
   allowCompression*: bool
   userAgent*: string
 
+const defaultUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:73.0) Gecko/20100101 Firefox/73.0"
+
 proc setCookies(br: NimiBrowser, resp: AsyncResponse) =
   if not resp.headers.hasKey("set-cookie"): return
   for key, val in resp.headers.pairs:
@@ -56,7 +58,7 @@ proc uncompressedBody*(resp: AsyncResponse): Future[string] {.async.} =
 proc request*(br: NimiBrowser, url: string, httpMethod: HttpMethod, body = "", headers = newHttpHeaders()): Future[AsyncResponse] {.async.} =
   var vheaders = newHttpHeaders()
   vheaders["cookie"] = br.makeCookies()
-  vheaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:73.0) Gecko/20100101 Firefox/73.0"
+  vheaders["User-Agent"] = br.userAgent
   vheaders["Accept-Language"] = "de,en-US;q=0.7,en;q=0.3"
   vheaders["Connection"] = "close"
   if br.currentUri != "":
@@ -94,7 +96,7 @@ proc newNimiBrowser*(cookiejar = "cookiejar"): NimiBrowser =
     cookies = newStringTable()
   result = NimiBrowser(
     cookies: cookies,
-    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:73.0) Gecko/20100101 Firefox/73.0"
+    userAgent: defaultUserAgent
   )
 
 when isMainModule and false:
@@ -106,7 +108,6 @@ when isMainModule and false:
 
 when isMainModule and false:
   var br = newNimiBrowser()
-  br.iAmFirefox()
   br.proxyUrl = "http://127.0.0.1:8080"
   var resp = waitFor br.get("https://beta.pathofdiablo.com/trade-search")
   echo br.cookies
@@ -120,7 +121,6 @@ when isMainModule and false:
       "sec-fetch-dest": "empty",
       "sec-fetch-mode": "cors",
       "sec-fetch-site": "same-origin",
-
     })
     resp = waitFor br.post("https://beta.pathofdiablo.com/api/v2/trade/search", body = body, headers = headers)
     let js = waitFor resp.body
