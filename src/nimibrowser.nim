@@ -2,13 +2,18 @@ import httpClient, asyncdispatch, httpclient, strtabs, uri, strformat, strutils,
 import marshal
 import zippy
 
+const COOKIEJAR = "cookiejar"
 
 type NimiBrowser* = ref object
   currentUri: string
-  cookies: StringTableRef
+  cookies*: StringTableRef
   defaultHeaders: HttpHeaders
   proxyUrl*: string
   allowCompression*: bool
+
+proc writeCookies(br: NimiBrowser) =
+  ## persits cookies to disk
+  writeFile(COOKIEJAR, $$br.cookies)
 
 proc setCookies(br: NimiBrowser, resp: AsyncResponse) =
   if not resp.headers.hasKey("set-cookie"): return
@@ -21,7 +26,13 @@ proc setCookies(br: NimiBrowser, resp: AsyncResponse) =
         br.cookies[parts[0]] = parts[1].strip()
       else:
         br.cookies[cookie] = ""
-  writeFile("cookiejar", $$br.cookies)
+  br.writeCookies()
+
+proc clearCookies*(br: NimiBrowser) =
+  ## clears all cookies
+  br.cookies.clear()
+  br.writeCookies()
+  # removeFile(COOKIEJAR)
 
 proc setCrsfTokens(br: NimiBrowser, headers: HttpHeaders): HttpHeaders =
   result = headers
@@ -78,6 +89,7 @@ proc request*(br: NimiBrowser, url: string, httpMethod: HttpMethod, body = "", h
   br.currentUri = url
   br.setCookies(result)
 
+
 proc get*(br: NimiBrowser, url: string, body = "", headers = newHttpHeaders()): Future[AsyncResponse] {.async.} =
   return await br.request(url, HttpGet, body, headers)
 
@@ -86,8 +98,8 @@ proc post*(br: NimiBrowser, url: string, body = "", headers = newHttpHeaders()):
 
 proc newNimiBrowser*(): NimiBrowser =
   var cookies: StringTableRef
-  if fileExists("cookiejar"):
-    cookies = to[StringTableRef](readFile("cookiejar"))
+  if fileExists(COOKIEJAR):
+    cookies = to[StringTableRef](readFile(COOKIEJAR))
   else:
     cookies = newStringTable()
   result = NimiBrowser(
