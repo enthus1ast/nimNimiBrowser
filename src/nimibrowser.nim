@@ -7,9 +7,11 @@ const COOKIEJAR = "cookiejar"
 type NimiBrowser* = ref object
   currentUri: string
   cookies*: StringTableRef
-  defaultHeaders: HttpHeaders
   proxyUrl*: string
   allowCompression*: bool
+  userAgent*: string
+
+const defaultUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:73.0) Gecko/20100101 Firefox/73.0"
 
 proc writeCookies(br: NimiBrowser) =
   ## persits cookies to disk
@@ -33,6 +35,7 @@ proc clearCookies*(br: NimiBrowser) =
   br.cookies.clear()
   br.writeCookies()
   # removeFile(COOKIEJAR)
+  writeFile("cookiejar", $$br.cookies)
 
 proc setCrsfTokens(br: NimiBrowser, headers: HttpHeaders): HttpHeaders =
   result = headers
@@ -50,7 +53,6 @@ proc setHeaderIfMissing*(headers: HttpHeaders, key, value: string) =
 proc uncompressedBody*(resp: AsyncResponse): Future[string] {.async.} =
   ## if the body is compressed AND `allowCompression = true` return the uncompressed version.
   ## else this proc is a no op.
-  # "content-encoding": @["gzip"]
   let contentEncodings = resp.headers.getOrDefault("content-encoding")
   if contentEncodings.len == 0:
     return (await resp.body)
@@ -66,10 +68,9 @@ proc uncompressedBody*(resp: AsyncResponse): Future[string] {.async.} =
 
 
 proc request*(br: NimiBrowser, url: string, httpMethod: HttpMethod, body = "", headers = newHttpHeaders()): Future[AsyncResponse] {.async.} =
-  var vheaders = headers # TODO FIRST set our defaults, then let the user overwrite with their headers, to allow fully custom requests
-  # br.cookies["__cfduid"] = "d5c917d143c948487c3f578ee899c566d1585589665"
+  var vheaders = newHttpHeaders()
   vheaders["cookie"] = br.makeCookies()
-  vheaders["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:73.0) Gecko/20100101 Firefox/73.0"
+  vheaders["User-Agent"] = br.userAgent
   vheaders["Accept-Language"] = "de,en-US;q=0.7,en;q=0.3"
   vheaders["Connection"] = "close"
   if br.currentUri != "":
@@ -79,6 +80,10 @@ proc request*(br: NimiBrowser, url: string, httpMethod: HttpMethod, body = "", h
     vheaders["Accept-Encoding"] = "deflate, gzip"
 
   vheaders = br.setCrsfTokens(vheaders)
+
+  # If the user provided some headers we respect them.
+  for (key, val) in headers.pairs():
+    vheaders[key] = val
 
   var client: AsyncHttpClient
   if br.proxyUrl != "":
@@ -96,91 +101,20 @@ proc get*(br: NimiBrowser, url: string, body = "", headers = newHttpHeaders()): 
 proc post*(br: NimiBrowser, url: string, body = "", headers = newHttpHeaders()): Future[AsyncResponse] {.async.} =
   return await br.request(url, HttpPost, body, headers)
 
-proc newNimiBrowser*(): NimiBrowser =
+proc newNimiBrowser*(cookiejar = COOKIEJAR): NimiBrowser =
   var cookies: StringTableRef
-  if fileExists(COOKIEJAR):
-    cookies = to[StringTableRef](readFile(COOKIEJAR))
+  if fileExists(cookiejar):
+    cookies = to[StringTableRef](readFile(cookiejar))
   else:
     cookies = newStringTable()
   result = NimiBrowser(
-    cookies: cookies
-    # defaultHeaders: defaultHeaders
+    cookies: cookies,
+    userAgent: defaultUserAgent
   )
 
-proc iAmFirefox(br: var NimiBrowser) =
-  ## sets default header like firefox
-
-
-when isMainModule:
+when isMainModule and false:
   var br = newNimiBrowser()
   br.allowCompression = true
   var resp = waitFor br.get("https://blog.fefe.de")
   echo resp.headers
   echo waitFor (resp.uncompressedBody())
-
-when isMainModule and false:
-  var br = newNimiBrowser(
-    # defaultHeaders: newHttpHeaders
-  )
-  br.iAmFirefox()
-  br.proxyUrl = "http://127.0.0.1:8080"
-  var resp = waitFor br.get("https://beta.pathofdiablo.com/trade-search")
-  echo br.cookies
-
-  sleep(2000)
-  proc search(br: NimiBrowser, item: string): string =
-    let body = """{"searchFilter":{"item":["$$$NAME$$$"],"need":"","quality":["All"],"gameMode":"softcore","poster":"","onlineOnly":false,"properties":[{"comparitor":"*"}]}}""".replace("$$$NAME$$$", item)
-    var headers = newHttpHeaders({
-      "Accept": "application/json, text/plain, */*",
-      "Content-Type": "application/json;charset=utf-8",
-      "sec-fetch-dest": "empty",
-      "sec-fetch-mode": "cors",
-      "sec-fetch-site": "same-origin",
-
-    })
-    resp = waitFor br.post("https://beta.pathofdiablo.com/api/v2/trade/search", body = body, headers = headers)
-    let js = waitFor resp.body
-    echo resp.status
-    return js
-
-
-  echo "UP:", (waitFor br.get("https://beta.pathofdiablo.com/api/account/get_updates")).code
-
-  writeFile("cont.html", br.search("Aldur"))
-  sleep(4000)
-
-  echo "UP:", (waitFor br.get("https://beta.pathofdiablo.com/api/account/get_updates")).code
-  writeFile("cont2.html", br.search("Windforce"))
-  sleep(4000)
-
-
-
-  if true: quit()
-  # block:
-
-  #   let header = newHttpHeaders(
-  #     {
-  #       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:73.0) Gecko/20100101 Firefox/73.0",
-  #       "Accept": "application/json, text/plain, */*",
-  #       "Accept-Language": "de,en-US;q=0.7,en;q=0.3",
-  #       # "Accept-Encoding": "gzip, deflate",
-  #       "Content-Type": "application/json;charset=utf-8",
-  #       "Origin": "https://beta.pathofdiablo.com",
-  #       "Connection": "close",
-  #       "Referer": "https://beta.pathofdiablo.com/"
-  #     }
-  #   )
-  #   var client = newAsyncHttpClient(headers = header)
-  #   echo (waitFor client.request("https://beta.pathofdiablo.com/trade-search")).headers
-
-
-
-
-  # )
-  # var client = newAsyncHttpClient(headers = header)
-  # let body = """{"searchFilter":{"item":["Jah rune"],"need":"","quality":["All"],"gameMode":"softcore","poster":"","onlineOnly":false,"properties":[{"comparitor":"*"}]}}"""
-  # echo waitFor client.postContent("http://beta.pathofdiablo.com/api/v2/trade/search", body = body)
-
-
-
-
