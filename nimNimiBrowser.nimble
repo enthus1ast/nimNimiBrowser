@@ -1,8 +1,8 @@
 # Package
 
-version       = "0.1.0"
+version       = "0.2.0"
 author        = "David Krause"
-description   = "A new awesome nimble package"
+description   = "a small, cookie handling, browser emulating, request library for nim."
 license       = "MIT"
 srcDir        = "src"
 
@@ -10,3 +10,4 @@ srcDir        = "src"
 # Dependencies
 
 requires "nim >= 1.4.2"
+requires "zippy"

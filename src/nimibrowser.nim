@@ -1,4 +1,4 @@
-import httpClient, asyncdispatch, httpclient, strtabs, uri, strformat, strutils, os
+import httpClient, asyncdispatch, httpclient, strtabs, uri, strformat, strutils, os, httpcore
 import marshal
 import zippy
 
@@ -41,18 +41,24 @@ proc clearCookies*(br: NimiBrowser) =
     br.writeCookies()
     writeFile("cookiejar", $$br.cookies)
 
-proc setCrsfTokens(br: NimiBrowser, headers: HttpHeaders): HttpHeaders =
+func setCrsfTokens(br: NimiBrowser, headers: HttpHeaders): HttpHeaders =
   result = headers
   if br.cookies.contains("XSRF-TOKEN"):
     result["X-XSRF-TOKEN"] = br.cookies["XSRF-TOKEN"]
 
-proc makeCookies(br: NimiBrowser): string =
+func makeCookies(br: NimiBrowser): string =
   for key, val in br.cookies.pairs:
     if val != "": result.add fmt"{key}={val}; "
     else: result.add fmt" {key};"
 
-proc setHeaderIfMissing*(headers: HttpHeaders, key, value: string) =
-  ## sets a header if it is not here
+func toHeader(headerStr: string): HttpHeaders =
+  ## parses a http header (or parts of it) and returns a `HttpHeaders` object
+  ## good for copy and paste from man in the middle proxies (like burp)
+  result = newHttpHeaders()
+  for line in headerStr.splitLines(): # TODO split lines is not good enough to parse all headers (multiline headers)
+    if line.isEmptyOrWhitespace(): continue
+    let (k, v) = parseHeader(line)
+    result[k] = v
 
 proc uncompressedBody*(resp: AsyncResponse): Future[string] {.async.} =
   ## if the body is compressed AND `allowCompression = true` return the uncompressed version.
@@ -60,7 +66,6 @@ proc uncompressedBody*(resp: AsyncResponse): Future[string] {.async.} =
   let contentEncodings = resp.headers.getOrDefault("content-encoding")
   if contentEncodings.len == 0:
     return (await resp.body)
-
   if contentEncodings == "gzip":
     let body = await resp.body
     return uncompress(body, dataFormat = dfGzip)
@@ -120,9 +125,26 @@ proc newNimiBrowser*(cookiejar = COOKIEJAR, persistCookies = true): NimiBrowser 
     persistCookies: persistCookies
   )
 
-when isMainModule and false:
+when isMainModule and true:
   var br = newNimiBrowser()
   br.allowCompression = true
-  var resp = waitFor br.get("https://blog.fefe.de")
+  let head = toHeader("""
+Host: blog.fefe.de
+Sec-Ch-Ua: "Chromium";v="95", ";Not A Brand";v="99"
+Sec-Ch-Ua-Mobile: ?0
+Sec-Ch-Ua-Platform: "Windows"
+Upgrade-Insecure-Requests: 1
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.69 Safari/537.36
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9
+Sec-Fetch-Site: none
+Sec-Fetch-Mode: navigate
+Sec-Fetch-User: ?1
+Sec-Fetch-Dest: document
+Accept-Encoding: gzip, deflate
+Accept-Language: de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7
+Connection: close
+  """)
+  echo head
+  var resp = waitFor br.get("https://blog.fefe.de", headers = head)
   echo resp.headers
   echo waitFor (resp.uncompressedBody())
