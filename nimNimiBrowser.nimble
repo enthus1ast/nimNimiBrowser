@@ -1,6 +1,6 @@
 # Package
 
-version       = "0.2.0"
+version       = "0.2.1"
 author        = "David Krause"
 description   = "a small, cookie handling, browser emulating, request library for nim."
 license       = "MIT"
