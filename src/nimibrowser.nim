@@ -76,7 +76,7 @@ proc uncompressedBody*(resp: AsyncResponse): Future[string] {.async.} =
     raise newException(ValueError, "unsupported compression format: " & contentEncodings[0])
 
 
-proc request*(br: NimiBrowser, url: string, httpMethod: HttpMethod,
+proc request*(br: NimiBrowser, url: string | Uri, httpMethod: HttpMethod,
     body = "", headers = newHttpHeaders(), multipart: MultipartData = newMultipartData()): Future[AsyncResponse] {.async.} =
   var vheaders = newHttpHeaders()
   vheaders["cookie"] = br.makeCookies()
@@ -100,18 +100,18 @@ proc request*(br: NimiBrowser, url: string, httpMethod: HttpMethod,
     client = newAsyncHttpClient(headers = vheaders, proxy = newProxy(br.proxyUrl))
   else:
     client = newAsyncHttpClient(headers = vheaders)
-  result = await client.request(url, httpMethod = httpMethod, body = body, multipart = multipart)
+  result = await client.request($url, httpMethod = httpMethod, body = body, multipart = multipart)
   br.currentUri = url
   br.setCookies(result)
 
 
-proc get*(br: NimiBrowser, url: string, body = "",
+proc get*(br: NimiBrowser, url: string | Uri, body = "",
     headers = newHttpHeaders(), multipart: MultipartData = newMultipartData()): Future[AsyncResponse] {.async.} =
-  return await br.request(url, HttpGet, body, headers)
+  return await br.request($url, HttpGet, body, headers)
 
-proc post*(br: NimiBrowser, url: string, body = "",
+proc post*(br: NimiBrowser, url: string | Uri, body = "",
     headers = newHttpHeaders(), multipart: MultipartData = newMultipartData()): Future[AsyncResponse] {.async.} =
-  return await br.request(url, HttpPost, body, headers)
+  return await br.request($url, HttpPost, body, headers)
 
 proc newNimiBrowser*(cookiejar = COOKIEJAR, persistCookies = true): NimiBrowser =
   var cookies: StringTableRef
