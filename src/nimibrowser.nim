@@ -51,7 +51,7 @@ func makeCookies(br: NimiBrowser): string =
     if val != "": result.add fmt"{key}={val}; "
     else: result.add fmt" {key};"
 
-func toHeader(headerStr: string): HttpHeaders =
+func toHeader*(headerStr: string): HttpHeaders =
   ## parses a http header (or parts of it) and returns a `HttpHeaders` object
   ## good for copy and paste from man in the middle proxies (like burp)
   result = newHttpHeaders()
