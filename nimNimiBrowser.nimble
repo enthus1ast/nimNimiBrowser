@@ -11,3 +11,4 @@ srcDir        = "src"
 
 requires "nim >= 1.4.2"
 requires "zippy"
+requires "puppy" # optional

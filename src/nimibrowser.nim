@@ -1,12 +1,14 @@
 import httpClient, asyncdispatch, httpclient, strtabs, uri, strformat, strutils, os, httpcore
 import marshal
 import zippy
+import puppy
 
 export asyncdispatch, httpclient, uri, strformat, strutils, os, strtabs
 
 const COOKIEJAR = "cookiejar"
 
 type NimiBrowser* = ref object
+  usePuppy*: bool
   currentUri: string
   cookies*: StringTableRef
   proxyUrl*: string
@@ -21,9 +23,14 @@ proc writeCookies(br: NimiBrowser) =
   if br.persistCookies:
     writeFile(COOKIEJAR, $$br.cookies)
 
+# template doSetCookies() {.dirty.} =
+
+
 proc setCookies(br: NimiBrowser, resp: AsyncResponse) =
+  ## For nim AsyncHttpClient
   if not resp.headers.hasKey("set-cookie"): return
   for key, val in resp.headers.pairs:
+    # doSetCookies() ## TODO remove copy paste
     if key.toLowerAscii == "set-cookie":
       var cookies = val.split(";", 1) # we dont need the rest
       var cookie = cookies[0]
@@ -32,6 +39,20 @@ proc setCookies(br: NimiBrowser, resp: AsyncResponse) =
         br.cookies[parts[0]] = parts[1].strip()
       else:
         br.cookies[cookie] = ""
+  br.writeCookies()
+
+proc setCookies(br: NimiBrowser, resp: puppy.common.Response) =
+  ## For puppy
+  # if not resp.headers.hasKey("set-cookie"): return
+  let val = resp.headers["set-cookie"]
+  if val.len == 0: return
+  var cookies = val.split(";", 1) # we dont need the rest
+  var cookie = cookies[0]
+  if cookie.contains("="):
+    let parts = cookie.split("=")
+    br.cookies[parts[0]] = parts[1].strip()
+  else:
+    br.cookies[cookie] = ""
   br.writeCookies()
 
 proc clearCookies*(br: NimiBrowser) =
@@ -79,7 +100,9 @@ proc uncompressedBody*(resp: AsyncResponse): Future[string] {.async.} =
 proc request*(br: NimiBrowser, url: string | Uri, httpMethod: HttpMethod,
     body = "", headers = newHttpHeaders(), multipart: MultipartData = newMultipartData()): Future[AsyncResponse] {.async.} =
   var vheaders = newHttpHeaders()
-  vheaders["cookie"] = br.makeCookies()
+  let cookieStr = br.makeCookies()
+  if cookieStr != "":
+    vheaders["cookie"] = cookieStr
   vheaders["User-Agent"] = br.userAgent
   vheaders["Accept-Language"] = "de,en-US;q=0.7,en;q=0.3"
   vheaders["Connection"] = "close"
@@ -95,14 +118,46 @@ proc request*(br: NimiBrowser, url: string | Uri, httpMethod: HttpMethod,
   for (key, val) in headers.pairs():
     vheaders[key] = val
 
-  var client: AsyncHttpClient
-  if br.proxyUrl != "":
-    client = newAsyncHttpClient(headers = vheaders, proxy = newProxy(br.proxyUrl))
+  if br.usePuppy:
+    if br.proxyUrl != "":
+      # TODO puppy proxy support
+      raise newException(ValueError, "nimibrowser with puppy does not support proxy yet!")
+    if ($multipart) != "":
+      raise newException(ValueError, "nimibrowser with puppy does not support multipart yet! Do it yourself in the body!!")
+
+    var pheaders: seq[Header] = @[]
+    for key, value in vheaders:
+      pheaders.add Header(key: key, value: value)
+      echo Header(key: key, value: value)
+
+    let req = Request(
+      url: url.parseUrl(),
+      headers: pheaders,
+      verb: $httpMethod,
+      body: body
+    )
+    let res = fetch(req)
+    br.currentUri = url
+    br.setCookies(res)
+    # fake the AsyncResponse
+    var bodyStream = newFutureStream[string]()
+    await bodyStream.write(res.body)
+    bodyStream.complete
+    result = AsyncResponse(
+      version: $1, ## TODO ??
+      status: $res.code,
+      headers: newHttpHeaders(), ## TODO,
+      bodyStream: bodyStream
+    )
   else:
-    client = newAsyncHttpClient(headers = vheaders)
-  result = await client.request($url, httpMethod = httpMethod, body = body, multipart = multipart)
-  br.currentUri = url
-  br.setCookies(result)
+    var client: AsyncHttpClient
+    if br.proxyUrl != "":
+      client = newAsyncHttpClient(headers = vheaders, proxy = newProxy(br.proxyUrl))
+    else:
+      client = newAsyncHttpClient(headers = vheaders)
+    result = await client.request($url, httpMethod = httpMethod, body = body, multipart = multipart)
+    br.currentUri = url
+    br.setCookies(result)
 
 
 proc get*(br: NimiBrowser, url: string | Uri, body = "",
@@ -113,7 +168,7 @@ proc post*(br: NimiBrowser, url: string | Uri, body = "",
     headers = newHttpHeaders(), multipart: MultipartData = newMultipartData()): Future[AsyncResponse] {.async.} =
   return await br.request($url, HttpPost, body, headers)
 
-proc newNimiBrowser*(cookiejar = COOKIEJAR, persistCookies = true): NimiBrowser =
+proc newNimiBrowser*(cookiejar = COOKIEJAR, persistCookies = true, usePuppy = false): NimiBrowser =
   var cookies: StringTableRef
   if fileExists(cookiejar):
     cookies = to[StringTableRef](readFile(cookiejar))
@@ -122,11 +177,12 @@ proc newNimiBrowser*(cookiejar = COOKIEJAR, persistCookies = true): NimiBrowser 
   result = NimiBrowser(
     cookies: cookies,
     userAgent: defaultUserAgent,
-    persistCookies: persistCookies
+    persistCookies: persistCookies,
+    usePuppy: usePuppy
   )
 
 when isMainModule and true:
-  var br = newNimiBrowser()
+  var br = newNimiBrowser(usePuppy = true)
   br.allowCompression = true
   let head = toHeader("""
 Host: blog.fefe.de
@@ -147,4 +203,5 @@ Connection: close
   echo head
   var resp = waitFor br.get("https://blog.fefe.de", headers = head)
   echo resp.headers
-  echo waitFor (resp.uncompressedBody())
+  # echo waitFor (resp.uncompressedBody())
+  echo waitFor resp.body
