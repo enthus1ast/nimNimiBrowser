@@ -1,7 +1,8 @@
-import httpClient, asyncdispatch, httpclient, strtabs, uri, strformat, strutils, os, httpcore
+import httpClient, asyncdispatch, httpclient, strtabs, uri, strformat, strutils, os
 import marshal
 import zippy
 import puppy
+import httpcore
 
 export asyncdispatch, httpclient, uri, strformat, strutils, os, strtabs
 
@@ -23,29 +24,7 @@ proc writeCookies(br: NimiBrowser) =
   if br.persistCookies:
     writeFile(COOKIEJAR, $$br.cookies)
 
-# template doSetCookies() {.dirty.} =
-
-
-proc setCookies(br: NimiBrowser, resp: AsyncResponse) =
-  ## For nim AsyncHttpClient
-  if not resp.headers.hasKey("set-cookie"): return
-  for key, val in resp.headers.pairs:
-    # doSetCookies() ## TODO remove copy paste
-    if key.toLowerAscii == "set-cookie":
-      var cookies = val.split(";", 1) # we dont need the rest
-      var cookie = cookies[0]
-      if cookie.contains("="):
-        let parts = cookie.split("=")
-        br.cookies[parts[0]] = parts[1].strip()
-      else:
-        br.cookies[cookie] = ""
-  br.writeCookies()
-
-proc setCookies(br: NimiBrowser, resp: puppy.common.Response) =
-  ## For puppy
-  # if not resp.headers.hasKey("set-cookie"): return
-  let val = resp.headers["set-cookie"]
-  if val.len == 0: return
+template doSetCookies() {.dirty.} =
   var cookies = val.split(";", 1) # we dont need the rest
   var cookie = cookies[0]
   if cookie.contains("="):
@@ -53,6 +32,20 @@ proc setCookies(br: NimiBrowser, resp: puppy.common.Response) =
     br.cookies[parts[0]] = parts[1].strip()
   else:
     br.cookies[cookie] = ""
+
+proc setCookies(br: NimiBrowser, resp: AsyncResponse) =
+  ## For nim AsyncHttpClient
+  if not resp.headers.hasKey("set-cookie"): return
+  for key, val in resp.headers.pairs:
+    if key.toLowerAscii == "set-cookie":
+      doSetCookies
+  br.writeCookies()
+
+proc setCookies(br: NimiBrowser, resp: puppy.common.Response) =
+  ## For puppy
+  let val = resp.headers["set-cookie"]
+  if val.len == 0: return
+  doSetCookies
   br.writeCookies()
 
 proc clearCookies*(br: NimiBrowser) =
@@ -62,7 +55,7 @@ proc clearCookies*(br: NimiBrowser) =
     br.writeCookies()
     writeFile("cookiejar", $$br.cookies)
 
-func setCrsfTokens(br: NimiBrowser, headers: HttpHeaders): HttpHeaders =
+func setCrsfTokens(br: NimiBrowser, headers: httpcore.HttpHeaders): httpcore.HttpHeaders =
   result = headers
   if br.cookies.contains("XSRF-TOKEN"):
     result["X-XSRF-TOKEN"] = br.cookies["XSRF-TOKEN"]
@@ -72,7 +65,7 @@ func makeCookies(br: NimiBrowser): string =
     if val != "": result.add fmt"{key}={val}; "
     else: result.add fmt" {key};"
 
-func toHeader*(headerStr: string): HttpHeaders =
+func toHeader*(headerStr: string): httpcore.HttpHeaders =
   ## parses a http header (or parts of it) and returns a `HttpHeaders` object
   ## good for copy and paste from man in the middle proxies (like burp)
   result = newHttpHeaders()
@@ -128,7 +121,6 @@ proc request*(br: NimiBrowser, url: string | Uri, httpMethod: HttpMethod,
     var pheaders: seq[Header] = @[]
     for key, value in vheaders:
       pheaders.add Header(key: key, value: value)
-      echo Header(key: key, value: value)
 
     let req = Request(
       url: url.parseUrl(),
